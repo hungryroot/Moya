@@ -81,10 +81,8 @@ open class MoyaProvider<Target: TargetType>: MoyaProviderType {
 
     public let trackInflights: Bool
 
-    open var inflightRequests: [Endpoint: [Moya.Completion]] { internalInflightRequests }
-
     @Atomic
-    var internalInflightRequests: [Endpoint: [Moya.Completion]] = [:]
+    var inflightRequests: [Endpoint: [Moya.Completion]] = [:]
 
     /// Propagated to Alamofire as callback queue. If nil - the Alamofire default (as of their API in 2017 - the main queue) will be used.
     let callbackQueue: DispatchQueue?

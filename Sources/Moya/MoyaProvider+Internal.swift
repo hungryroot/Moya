@@ -33,12 +33,12 @@ public extension MoyaProvider {
         if trackInflights {
             var inflightCompletionBlocks = self.inflightRequests[endpoint]
             inflightCompletionBlocks?.append(pluginsWithCompletion)
-            self.internalInflightRequests[endpoint] = inflightCompletionBlocks
+            self.inflightRequests[endpoint] = inflightCompletionBlocks
             
             if inflightCompletionBlocks != nil {
                 return cancellableToken
             } else {
-                self.internalInflightRequests[endpoint] = [pluginsWithCompletion]
+                self.inflightRequests[endpoint] = [pluginsWithCompletion]
             }
         }
 
@@ -61,21 +61,26 @@ public extension MoyaProvider {
             }
 
             let networkCompletion: Moya.Completion = { result in
-                if self.trackInflights {
-                    let inflightRequests = self
-                        .internalInflightRequests
-                        .removeValue(forKey: endpoint)
-                    inflightRequests?.forEach { $0(result) }
-                } else {
+                if !self.trackInflights {
                     pluginsWithCompletion(result)
+                } else {
+                    while let inflightRequests =
+                            self.inflightRequests
+                        .removeValue(forKey: endpoint)
+                    {
+                        inflightRequests.forEach { $0(result) }
+                    }
                 }
             }
 
             cancellableToken.innerCancellable = self.performRequest(target, request: request, callbackQueue: callbackQueue, progress: progress, completion: networkCompletion, endpoint: endpoint, stubBehavior: stubBehavior)
         }
 
-        requestClosure(endpoint, performNetworking)
-
+        if self.inflightRequests[endpoint] != nil
+        {
+            requestClosure(endpoint, performNetworking)
+        }
+        
         return cancellableToken
     }
 
