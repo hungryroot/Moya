@@ -29,8 +29,10 @@ public extension MoyaProvider {
             let processedResult = self.plugins.reduce(result) { $1.process($0, target: target) }
             completion(processedResult)
         }
-
-        if trackInflights, target.method == .get {
+        
+        let coallece = trackInflights && target.method == .get
+        
+        if coallece {
             var inflightCompletionBlocks = self.inflightRequests[endpoint]
             inflightCompletionBlocks?.append(pluginsWithCompletion)
             self.inflightRequests[endpoint] = inflightCompletionBlocks
@@ -44,8 +46,7 @@ public extension MoyaProvider {
 
         let performNetworking = { (requestResult: Result<URLRequest, MoyaError>) in
             if cancellableToken.isCancelled {
-                guard self.trackInflights, target.method == .get,
-                        self.inflightRequests[endpoint]?.count ?? 0 > 1 else {
+                guard coallece, self.inflightRequests[endpoint]?.count ?? 0 > 1 else {
                     return self.cancelCompletion(pluginsWithCompletion, target: target)
                 }
             }
@@ -61,7 +62,7 @@ public extension MoyaProvider {
             }
 
             let networkCompletion: Moya.Completion = { result in
-                if !self.trackInflights || target.method != .get {
+                if !coallece {
                     pluginsWithCompletion(result)
                 } else {
                     while let inflightRequests =
@@ -76,7 +77,7 @@ public extension MoyaProvider {
             cancellableToken.innerCancellable = self.performRequest(target, request: request, callbackQueue: callbackQueue, progress: progress, completion: networkCompletion, endpoint: endpoint, stubBehavior: stubBehavior)
         }
 
-        if target.method != .get ||
+        if !coallece ||
             self.inflightRequests[endpoint] != nil
         {
             requestClosure(endpoint, performNetworking)
