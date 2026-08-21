@@ -33,14 +33,19 @@ public extension MoyaProvider {
         let coallece = trackInflights && target.method == .get
         
         if coallece {
-            var inflightCompletionBlocks = self.inflightRequests[endpoint]
-            inflightCompletionBlocks?.append(pluginsWithCompletion)
-            self.inflightRequests[endpoint] = inflightCompletionBlocks
-            
-            if inflightCompletionBlocks != nil {
+            // Register atomically: deciding first-vs-coalesced and storing the
+            // completion must be one critical section, or a concurrent
+            // insert/removal on another endpoint can overwrite this entry and
+            // the completion is destroyed without ever being called.
+            lock.lock()
+            var blocks = inflightRequests[endpoint]
+            blocks?.append(pluginsWithCompletion)
+            inflightRequests[endpoint] = blocks ?? [pluginsWithCompletion]
+            let isFirst = blocks == nil
+            lock.unlock()
+
+            if !isFirst {
                 return cancellableToken
-            } else {
-                self.inflightRequests[endpoint] = [pluginsWithCompletion]
             }
         }
 
@@ -65,24 +70,23 @@ public extension MoyaProvider {
                 if !coallece {
                     pluginsWithCompletion(result)
                 } else {
-                    while let inflightRequests =
-                            self.inflightRequests
-                        .removeValue(forKey: endpoint)
-                    {
-                        inflightRequests.forEach { $0(result) }
-                    }
+                    self.lock.lock()
+                    let blocks = self.inflightRequests.removeValue(forKey: endpoint)
+                    self.lock.unlock()
+                    blocks?.forEach { $0(result) }
                 }
             }
 
             cancellableToken.innerCancellable = self.performRequest(target, request: request, callbackQueue: callbackQueue, progress: progress, completion: networkCompletion, endpoint: endpoint, stubBehavior: stubBehavior)
         }
 
-        if !coallece ||
-            self.inflightRequests[endpoint] != nil
-        {
-            requestClosure(endpoint, performNetworking)
-        }
-        
+        // Dispatch unconditionally: coalesced followers already returned above,
+        // so reaching here means this request owns the network call. The old
+        // `inflightRequests[endpoint] != nil` recheck could only skip the
+        // dispatch when a concurrent mutation had wiped the entry (leaving the
+        // caller hung), never legitimately.
+        requestClosure(endpoint, performNetworking)
+
         return cancellableToken
     }
 
